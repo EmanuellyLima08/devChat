@@ -1,61 +1,38 @@
-using System.Net.WebSockets;
-using System.Text;
+﻿using ServidorChat.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Adiciona o SignalR
+builder.Services.AddSignalR();
+
+// Configura o CORS para permitir credenciais e a origem desejada
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowSpecificOrigin", policy =>
+    {
+        policy
+            .WithOrigins("http://localhost:3000", "http://192.168.0.109:5000") // Permite frontend local e externo
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials(); // Permite credenciais (cookies, headers de autenticação, etc)
+    });
+});
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
 var app = builder.Build();
 
-// Habilita WebSockets
-var webSocketOptions = new WebSocketOptions
-{
-    KeepAliveInterval = TimeSpan.FromSeconds(120)
-};
+// Aplica o CORS
+app.UseCors("AllowSpecificOrigin");  // Aplica a política CORS com credenciais
 
-app.UseWebSockets(webSocketOptions);
+app.UseSwagger();
+app.UseSwaggerUI();
 
-// Lista de clientes conectados
-List<WebSocket> connectedClients = new();
+// Endpoint raiz para ver se o servidor está online
+app.MapGet("/", () => "✅ Servidor está rodando perfeitamente!");
 
-// Endpoint de WebSocket
-app.Map("/ws", async context =>
-{
-    if (context.WebSockets.IsWebSocketRequest)
-    {
-        var socket = await context.WebSockets.AcceptWebSocketAsync();
-        connectedClients.Add(socket);
-
-        var buffer = new byte[1024 * 4];
-        WebSocketReceiveResult result;
-
-        while (socket.State == WebSocketState.Open)
-        {
-            result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-            var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-
-            Console.WriteLine($"Mensagem recebida: {message}");
-
-            // Broadcast para todos os clientes
-            foreach (var client in connectedClients.ToList())
-            {
-                if (client.State == WebSocketState.Open)
-                {
-                    var data = Encoding.UTF8.GetBytes(message);
-                    await client.SendAsync(
-                        new ArraySegment<byte>(data, 0, data.Length),
-                        WebSocketMessageType.Text,
-                        true,
-                        CancellationToken.None
-                    );
-                }
-            }
-        }
-
-        connectedClients.Remove(socket);
-        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Conex�o encerrada", CancellationToken.None);
-    }
-    else
-    {
-        context.Response.StatusCode = 400;
-    }
-});
+// Endpoint do SignalR
+app.MapHub<ChatHub>("/chatHub");
 
 app.Run();
